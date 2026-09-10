@@ -2,7 +2,7 @@ from sqlalchemy import Column, String, Integer, ForeignKey, Index
 from app.db.base import Base
 
 
-class ImportError(Base):
+class ImportRow(Base):
     __tablename__ = "import_errors"
 
     id = Column(Integer, primary_key=True, autoincrement=True)

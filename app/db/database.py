@@ -2,18 +2,28 @@ from contextlib import asynccontextmanager
 from sqlalchemy.ext.asyncio import (
     AsyncSession, create_async_engine, async_sessionmaker
 )
+from sqlalchemy.engine import make_url
+from sqlalchemy.pool import NullPool
 from app.config import get_settings
 
 settings = get_settings()
 
-_db_url = settings.DATABASE_URL.replace(
-    "postgresql://", "postgresql+asyncpg://"
-)
+_database_url = make_url(settings.DATABASE_URL)
+_query = dict(_database_url.query)
+_ssl_required = _query.pop("sslmode", None) == "require"
+_query.pop("channel_binding", None)
+_db_url = _database_url.set(
+    drivername="postgresql+asyncpg",
+    query=_query,
+).render_as_string(hide_password=False)
 
 engine = create_async_engine(
     _db_url,
-    pool_size=20,
-    max_overflow=5,
+    poolclass=NullPool,
+    connect_args={
+        "statement_cache_size": 0,
+        **({"ssl": True} if _ssl_required else {}),
+    },
     pool_pre_ping=True,
     echo=(settings.APP_ENV == "development"),
 )

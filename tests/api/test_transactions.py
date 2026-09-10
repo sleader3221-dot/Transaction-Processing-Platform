@@ -1,31 +1,26 @@
 import pytest
 import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
-import fakeredis.aioredis as fakeredis
-
-from app.main import app
-from app.db.database import get_db
-from app.redis_client.client import get_redis
-from app.models.transaction import Transaction
-from app.core.id_gen import generate_id
+import uuid
 from decimal import Decimal
 from datetime import datetime, timezone
+
+from app.models.transaction import Transaction
 
 
 @pytest_asyncio.fixture
 async def populated_db(db_session):
     tx1 = Transaction(
-        id=generate_id(), transaction_id="TXN-API-1", account_id="ACC-API-1",
+        id=uuid.uuid4(), transaction_id="TXN-API-1", account_id="ACC-API-1",
         type="CREDIT", amount=Decimal("1000.00"), currency="USD",
         timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc)
     )
     tx2 = Transaction(
-        id=generate_id(), transaction_id="TXN-API-2", account_id="ACC-API-1",
+        id=uuid.uuid4(), transaction_id="TXN-API-2", account_id="ACC-API-1",
         type="DEBIT", amount=Decimal("200.00"), currency="USD",
         timestamp=datetime(2026, 1, 2, tzinfo=timezone.utc)
     )
     tx3 = Transaction(
-        id=generate_id(), transaction_id="TXN-API-3", account_id="ACC-API-2",
+        id=uuid.uuid4(), transaction_id="TXN-API-3", account_id="ACC-API-2",
         type="CREDIT", amount=Decimal("500.00"), currency="EUR",
         timestamp=datetime(2026, 1, 3, tzinfo=timezone.utc)
     )
@@ -44,7 +39,7 @@ async def test_get_transaction(client, api_key, populated_db):
     assert r.status_code == 200
     data = r.json()
     assert data["transaction_id"] == tx.transaction_id
-    assert data["amount"] == "1000.00"
+    assert Decimal(data["amount"]) == Decimal("1000.00")
 
 
 @pytest.mark.asyncio

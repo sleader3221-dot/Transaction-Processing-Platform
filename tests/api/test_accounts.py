@@ -1,28 +1,23 @@
 import pytest
 import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
-import fakeredis.aioredis as fakeredis
-
-from app.main import app
-from app.db.database import get_db
-from app.redis_client.client import get_redis
-from app.models.transaction import Transaction
-from app.core.id_gen import generate_id
+import uuid
 from decimal import Decimal
 from datetime import datetime, timezone
+
+from app.models.transaction import Transaction
 
 
 @pytest_asyncio.fixture
 async def account_db(db_session):
     txs = [
         Transaction(
-            id=generate_id(), transaction_id=f"TXN-SUM-{i}", account_id="ACC-SUM-1",
+            id=uuid.uuid4(), transaction_id=f"TXN-SUM-{i}", account_id="ACC-SUM-1",
             type="CREDIT", amount=Decimal("1000.00"), currency="USD",
             timestamp=datetime(2026, 1, i, tzinfo=timezone.utc)
         ) for i in range(1, 6)
     ] + [
         Transaction(
-            id=generate_id(), transaction_id=f"TXN-SUM-D-{i}", account_id="ACC-SUM-1",
+            id=uuid.uuid4(), transaction_id=f"TXN-SUM-D-{i}", account_id="ACC-SUM-1",
             type="DEBIT", amount=Decimal("200.00"), currency="USD",
             timestamp=datetime(2026, 2, i, tzinfo=timezone.utc)
         ) for i in range(1, 4)

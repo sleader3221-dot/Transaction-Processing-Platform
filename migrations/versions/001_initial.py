@@ -56,6 +56,7 @@ def upgrade():
         sa.Column("timestamp", sa.DateTime(timezone=True), nullable=False),
         sa.Column("import_id", sa.String(26), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("NOW()")),
+        sa.CheckConstraint("amount > 0", name="ck_transactions_amount_positive"),
     )
     op.create_index("uq_transactions_txn_id", "transactions", ["transaction_id"], unique=True)
     op.create_index("ix_txn_account_timestamp", "transactions", ["account_id", "timestamp"])

@@ -42,7 +42,7 @@ async def get_transaction(
             summary="List transactions with filters and pagination")
 async def list_transactions(
     account_id: Optional[str] = Query(None, description="Filter by account ID"),
-    type: Optional[str] = Query(None, description="CREDIT or DEBIT"),
+    transaction_type: Optional[str] = Query(None, alias="type", description="CREDIT or DEBIT"),
     currency: Optional[str] = Query(None, description="ISO 4217 currency code"),
     date_from: Optional[datetime] = Query(None, description="Inclusive start timestamp"),
     date_to: Optional[datetime] = Query(None, description="Inclusive end timestamp"),
@@ -56,10 +56,10 @@ async def list_transactions(
     filters = []
     if account_id:
         filters.append(Transaction.account_id == account_id)
-    if type:
-        if type.upper() not in ("CREDIT", "DEBIT"):
+    if transaction_type:
+        if transaction_type.upper() not in ("CREDIT", "DEBIT"):
             raise HTTPException(status_code=400, detail="type must be CREDIT or DEBIT")
-        filters.append(Transaction.type == type.upper())
+        filters.append(Transaction.type == transaction_type.upper())
     if currency:
         filters.append(Transaction.currency == currency.upper())
     if date_from:

@@ -1,19 +1,28 @@
 import asyncio
+import hashlib
+import secrets
+
+import fakeredis.aioredis as fakeredis
 import pytest
 import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import (
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.pool import NullPool
 
-from app.main import app
-from app.db.base import Base
-from app.db import database as db_module
 from app.config import get_settings
+from app.db.base import Base
+from app.main import app
+
 
 settings = get_settings()
-
 TEST_DB_URL = settings.DATABASE_URL.replace(
     "postgresql://", "postgresql+asyncpg://"
 )
+TEST_DB_URL += "?prepared_statement_cache_size=0"
+
 
 @pytest.fixture(scope="session")
 def event_loop():
@@ -22,14 +31,14 @@ def event_loop():
     loop.close()
 
 
-@pytest_asyncio.fixture(scope="session")
+@pytest_asyncio.fixture
 async def test_engine():
-    engine = create_async_engine(TEST_DB_URL, echo=False)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    engine = create_async_engine(TEST_DB_URL, echo=False, poolclass=NullPool)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
     yield engine
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+    async with engine.begin() as connection:
+        await connection.run_sync(Base.metadata.drop_all)
     await engine.dispose()
 
 
@@ -42,15 +51,19 @@ async def db_session(test_engine):
 
 
 @pytest_asyncio.fixture
-async def client(test_engine, db_session):
+async def client(db_session):
     from app.db.database import get_db
     from app.redis_client.client import get_redis
-    import fakeredis.aioredis as fakeredis
 
     fake_redis = fakeredis.FakeRedis(decode_responses=True)
 
+    session_factory = async_sessionmaker(
+        db_session.bind, expire_on_commit=False
+    )
+
     async def override_get_db():
-        yield db_session
+        async with session_factory() as session:
+            yield session
 
     async def override_get_redis():
         return fake_redis
@@ -60,23 +73,26 @@ async def client(test_engine, db_session):
 
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
-        yield ac
+    ) as async_client:
+        yield async_client
 
     app.dependency_overrides.clear()
+    await fake_redis.aclose()
 
 
 @pytest_asyncio.fixture
 async def api_key(db_session) -> str:
-    import hashlib, secrets
-    from app.models.api_key import ApiKey
     from app.core.id_gen import generate_id
+    from app.models.api_key import ApiKey
 
-    raw = secrets.token_urlsafe(32)
-    db_session.add(ApiKey(
-        id=generate_id(), client_id="test-client",
-        key_hash=hashlib.sha256(raw.encode()).hexdigest(),
-        is_active=True,
-    ))
+    raw_key = f"test-{secrets.token_hex(16)}"
+    db_session.add(
+        ApiKey(
+            id=generate_id(),
+            client_id="test-client",
+            key_hash=hashlib.sha256(raw_key.encode()).hexdigest(),
+            is_active=True,
+        )
+    )
     await db_session.commit()
-    return raw
+    return raw_key

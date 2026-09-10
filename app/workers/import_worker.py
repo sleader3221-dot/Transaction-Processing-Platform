@@ -12,7 +12,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from app.config import get_settings
 from app.core.validation import validate_transaction_row
 from app.db.database import get_db_session
-from app.models.import_error import ImportError
+from app.models.import_error import ImportRow
 from app.models.import_model import Import, ImportStatus
 from app.models.transaction import Transaction
 from app.redis_client.client import get_redis
@@ -23,6 +23,9 @@ logger = structlog.get_logger()
 CONSUMER_NAME = f"worker-{socket.gethostname()}"
 BATCH_SIZE = settings.WORKER_BATCH_SIZE
 PROGRESS_EVERY = settings.WORKER_PROGRESS_INTERVAL
+
+MAX_RETRIES = 3
+BASE_BACKOFF = 2  # seconds
 
 _running = True
 
@@ -79,21 +82,48 @@ async def _recover_pending(queue: ImportQueue):
 
 async def _handle_import(queue: ImportQueue, import_id: str,
                          msg_id: str, recovery: bool = False):
-    try:
-        await _process_import(import_id, recovery=recovery)
-        await queue.ack(msg_id)
-    except Exception as exc:
-        logger.error("import_error", import_id=import_id, error=str(exc))
-        async with get_db_session() as db:
-            await db.execute(
-                update(Import).where(Import.id == import_id).values(
-                    status=ImportStatus.FAILED,
-                    error_message=str(exc)[:2048],
-                    completed_at=datetime.now(timezone.utc),
+    """Process import with retry-on-failure and exponential backoff."""
+    last_exc = None
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            await _process_import(import_id, recovery=(recovery or attempt > 1))
+            await queue.ack(msg_id)
+            if attempt > 1:
+                logger.info("import_recovered_after_retry",
+                            import_id=import_id, attempt=attempt)
+            return
+        except Exception as exc:
+            last_exc = exc
+            if attempt < MAX_RETRIES:
+                backoff = BASE_BACKOFF ** attempt
+                logger.warning(
+                    "import_attempt_failed",
+                    import_id=import_id,
+                    attempt=attempt,
+                    next_retry_in=backoff,
+                    error=str(exc),
                 )
+                await asyncio.sleep(backoff)
+            else:
+                logger.error(
+                    "import_permanently_failed",
+                    import_id=import_id,
+                    attempts=MAX_RETRIES,
+                    error=str(exc),
+                )
+
+    # All retries exhausted
+    async with get_db_session() as db:
+        await db.execute(
+            update(Import).where(Import.id == import_id).values(
+                status=ImportStatus.FAILED,
+                error_message=f"Failed after {MAX_RETRIES} attempts: {str(last_exc)[:2000]}",
+                completed_at=datetime.now(timezone.utc),
             )
-            await db.commit()
-        await queue.dead_letter(import_id, msg_id, str(exc))
+        )
+        await db.commit()
+    await queue.dead_letter(import_id, msg_id, str(last_exc))
 
 
 async def _process_import(import_id: str, recovery: bool = False):
@@ -111,8 +141,8 @@ async def _process_import(import_id: str, recovery: bool = False):
 
         if recovery:
             await db.execute(
-                ImportError.__table__.delete().where(
-                    ImportError.import_id == import_id
+                ImportRow.__table__.delete().where(
+                    ImportRow.import_id == import_id
                 )
             )
 
@@ -218,7 +248,7 @@ async def _flush(tx_batch: list[dict], err_batch: list[dict]) -> int:
             cross_file_dups = len(tx_batch) - inserted
 
         if err_batch:
-            await db.execute(ImportError.__table__.insert().values(err_batch))
+            await db.execute(ImportRow.__table__.insert().values(err_batch))
 
         await db.commit()
 

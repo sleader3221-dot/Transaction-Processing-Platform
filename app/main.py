@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 
 from app.config import get_settings
 from app.core.logging_config import setup_logging
@@ -20,7 +21,11 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db()
+    try:
+        await init_db()
+        logger.info("database_connection_ready")
+    except Exception as exc:
+        logger.warning("database_connection_unavailable", error=str(exc))
     logger.info("application_started", env=settings.APP_ENV)
     yield
     logger.info("application_stopped")
@@ -33,6 +38,56 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
 )
+
+
+@app.get("/", include_in_schema=False)
+async def root():
+    return {
+        "service": "Transaction Processing Platform",
+        "version": app.version,
+        "docs": "/docs",
+        "liveness": "/health/live",
+        "readiness": "/health/ready",
+    }
+
+
+def custom_openapi():
+    """Enhance OpenAPI schema with security definitions and better descriptions."""
+    if app.openapi_schema:
+        return app.openapi_schema
+    schema = get_openapi(
+        title="Transaction Processing Platform",
+        version="1.0.0",
+        description="""## Transaction Processing Platform
+
+Async CSV import platform for financial transactions.
+
+### Authentication
+All endpoints (except `/health/*`) require an `X-API-Key` header.
+Contact your administrator to obtain an API key.
+
+### Rate Limiting
+100 requests per minute per API key. Exceeding this returns `429 Too Many Requests`.
+
+### Import Lifecycle
+`QUEUED → PROCESSING → COMPLETED | FAILED`
+        """,
+        routes=app.routes,
+    )
+    # Add security scheme
+    schema["components"]["securitySchemes"] = {
+        "ApiKeyAuth": {
+            "type": "apiKey",
+            "in": "header",
+            "name": "X-API-Key",
+        }
+    }
+    schema["security"] = [{"ApiKeyAuth": []}]
+    app.openapi_schema = schema
+    return app.openapi_schema
+
+
+app.openapi = custom_openapi
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_methods=["*"], allow_headers=["*"])

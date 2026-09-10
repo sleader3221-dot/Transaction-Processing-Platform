@@ -1,6 +1,6 @@
 import uuid
 import enum
-from sqlalchemy import Column, String, Numeric, DateTime, Enum, Index, text
+from sqlalchemy import Column, String, Numeric, DateTime, Enum, Index, text, CheckConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from app.db.base import Base
 
@@ -29,4 +29,5 @@ class Transaction(Base):
         Index("ix_txn_currency", "currency"),
         Index("ix_txn_timestamp", "timestamp"),
         Index("ix_txn_import_id", "import_id"),
+        CheckConstraint("amount > 0", name="ck_transactions_amount_positive"),
     )

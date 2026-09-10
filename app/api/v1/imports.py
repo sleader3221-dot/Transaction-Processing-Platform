@@ -13,7 +13,7 @@ from app.core.auth import verify_api_key
 from app.core.id_gen import generate_id
 from app.core.validation import validate_csv_header
 from app.db.database import get_db
-from app.models.import_error import ImportError
+from app.models.import_error import ImportRow
 from app.models.import_model import Import, ImportStatus
 from app.redis_client.client import get_redis
 from app.redis_client.queue import ImportQueue
@@ -133,13 +133,13 @@ async def get_import_errors(
         raise HTTPException(status_code=404, detail="Import not found")
 
     total = (await db.execute(
-        select(func.count(ImportError.id)).where(ImportError.import_id == import_id)
+        select(func.count(ImportRow.id)).where(ImportRow.import_id == import_id)
     )).scalar_one()
 
     rows = (await db.execute(
-        select(ImportError)
-        .where(ImportError.import_id == import_id)
-        .order_by(ImportError.row_number)
+        select(ImportRow)
+        .where(ImportRow.import_id == import_id)
+        .order_by(ImportRow.row_number)
         .offset((page - 1) * limit)
         .limit(limit)
     )).scalars().all()
