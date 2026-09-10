@@ -1,6 +1,9 @@
 import asyncio
 import hashlib
+import os
 import secrets
+
+os.environ["TESTING"] = "true"
 
 import fakeredis.aioredis as fakeredis
 import pytest
@@ -39,6 +42,7 @@ async def test_engine():
     yield engine
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.drop_all)
+        await connection.exec_driver_sql("DROP TABLE IF EXISTS alembic_version")
     await engine.dispose()
 
 

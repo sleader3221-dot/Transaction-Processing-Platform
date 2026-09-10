@@ -43,7 +43,7 @@ migrations/         Alembic configuration and schema revisions
 scripts/            API-key and test-data utilities
 tests/              Unit, API, integration, concurrency, and failure tests
 load_test/          Locust configuration and reproducible load-test runner
-deployment/         Parameterized Bash and PowerShell deployment helpers
+  deploy-fixed-final.ps1  Canonical Azure deployment script
 Dockerfile          API/migration image
 Dockerfile.worker   Dedicated worker image
 docker-compose.yml  Local PostgreSQL, Redis, API, worker, and migration services
@@ -313,6 +313,7 @@ See [AZURE_DEPLOYMENT.md](AZURE_DEPLOYMENT.md) for prerequisites, architecture, 
 - [ARCHITECTURE.md](ARCHITECTURE.md)
 - [AZURE_DEPLOYMENT.md](AZURE_DEPLOYMENT.md)
 - [PERFORMANCE_TESTING_COMPLETE.md](PERFORMANCE_TESTING_COMPLETE.md)
+- [PERFORMANCE_RESULTS.md](load_test/PERFORMANCE_RESULTS.md) — measured local smoke run
 - [`.env.example`](.env.example)
 
 ## License

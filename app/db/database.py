@@ -17,16 +17,20 @@ _db_url = _database_url.set(
     query=_query,
 ).render_as_string(hide_password=False)
 
-engine = create_async_engine(
-    _db_url,
-    poolclass=NullPool,
-    connect_args={
+_engine_options = {
+    "connect_args": {
         "statement_cache_size": 0,
         **({"ssl": True} if _ssl_required else {}),
     },
-    pool_pre_ping=True,
-    echo=(settings.APP_ENV == "development"),
-)
+    "pool_pre_ping": True,
+    "echo": settings.APP_ENV == "development",
+}
+if settings.TESTING:
+    _engine_options["poolclass"] = NullPool
+else:
+    _engine_options.update(pool_size=20, max_overflow=5)
+
+engine = create_async_engine(_db_url, **_engine_options)
 
 AsyncSessionLocal = async_sessionmaker(
     engine,

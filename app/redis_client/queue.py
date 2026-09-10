@@ -25,11 +25,19 @@ class ImportQueue:
         return msg_id
 
     async def read_pending(self, consumer: str, count: int = 10):
-        return await self.redis.xreadgroup(
-            GROUP, consumer,
-            {STREAM: "0"},
-            count=count,
-        )
+        try:
+            result = await self.redis.xautoclaim(
+                STREAM, GROUP, consumer, min_idle_time=0,
+                start_id="0-0", count=count,
+            )
+            _next_id, messages = result[:2]
+            return [(STREAM, messages)] if messages else []
+        except (AttributeError, NotImplementedError):
+            return await self.redis.xreadgroup(
+                GROUP, consumer,
+                {STREAM: "0"},
+                count=count,
+            )
 
     async def read_new(self, consumer: str, count: int = 1, block_ms: int = 2000):
         return await self.redis.xreadgroup(

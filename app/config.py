@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     REDIS_URL: str
     APP_ENV: str = "development"
+    TESTING: bool = False
     LOG_LEVEL: str = "INFO"
     SECRET_KEY: str = "change-me"
     UPLOAD_DIR: str = "/app/uploads"

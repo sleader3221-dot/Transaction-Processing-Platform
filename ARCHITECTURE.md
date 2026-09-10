@@ -80,14 +80,14 @@ QUEUED -> PROCESSING -> COMPLETED / FAILED
 
 - Separate process/container
 - Consumer group `workers`; each worker has unique name (hostname-based)
-- On startup: reads the PEL (pending entry list) first -> crash recovery
+- On startup: uses `XAUTOCLAIM` to reclaim pending entries from crashed consumers -> crash recovery
 - Batch size: 1000 rows; progress update every 5000 rows
 
 ## 6. Failure / Recovery Strategy
 
 Worker crash during processing:
-1. Redis Stream retains message in PEL (pending entry list).
-2. On worker restart, `XREADGROUP ... ID=0` returns pending messages.
+1. Redis Stream retains the message in the PEL (pending entry list).
+2. On worker restart, `XAUTOCLAIM` transfers pending messages from abandoned consumers.
 3. Worker checks DB: if status = PROCESSING -> clear errors, reset to QUEUED, reprocess.
 4. `INSERT ... ON CONFLICT DO NOTHING` makes reprocessing idempotent.
 

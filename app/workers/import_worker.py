@@ -205,8 +205,7 @@ async def _stream_csv(import_id: str, file_path: str):
                 failed += 1
 
             if len(tx_batch) >= BATCH_SIZE or len(err_batch) >= BATCH_SIZE:
-                extra_dup = await _flush(tx_batch, err_batch)
-                failed += extra_dup
+                await _flush(tx_batch, err_batch)
                 tx_batch.clear()
                 err_batch.clear()
 

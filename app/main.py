@@ -104,7 +104,11 @@ async def middleware(request: Request, call_next):
             redis, settings.RATE_LIMIT_REQUESTS, settings.RATE_LIMIT_WINDOW
         )
         client_id = request.headers.get("X-API-Key") or (request.client.host if request.client else "unknown")
-        allowed, count = await limiter.is_allowed(client_id)
+        try:
+            allowed, count = await limiter.is_allowed(client_id)
+        except Exception as exc:
+            logger.warning("rate_limiter_unavailable", error=str(exc))
+            allowed, count = True, 0
 
         if not allowed:
             return Response(

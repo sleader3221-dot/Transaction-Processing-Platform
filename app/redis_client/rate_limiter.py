@@ -1,4 +1,5 @@
 import time
+import uuid
 import redis.asyncio as aioredis
 
 
@@ -12,10 +13,11 @@ class SlidingWindowRateLimiter:
         key = f"rate_limit:{client_id}"
         now = time.time()
         window_start = now - self.window
+        member = f"{now:.6f}:{uuid.uuid4().hex}"
 
         async with self.redis.pipeline(transaction=True) as pipe:
             pipe.zremrangebyscore(key, "-inf", window_start)
-            pipe.zadd(key, {str(now): now})
+            pipe.zadd(key, {member: now})
             pipe.zcard(key)
             pipe.expire(key, self.window + 1)
             results = await pipe.execute()
