@@ -80,7 +80,7 @@ QUEUED -> PROCESSING -> COMPLETED / FAILED
 
 - Separate process/container
 - Consumer group `workers`; each worker has unique name (hostname-based)
-- On startup: reads PEL (pending) first -> crash recovery
+- On startup: reads the PEL (pending entry list) first -> crash recovery
 - Batch size: 1000 rows; progress update every 5000 rows
 
 ## 6. Failure / Recovery Strategy
@@ -111,8 +111,8 @@ Worker crash during processing:
 
 | # | Decision | Trade-off |
 |---|----------|-----------|
-| 1 | Redis Streams | More complex than Lists; consumer groups add setup but give delivery guarantees |
+| 1 | Redis Streams | More complex than Lists; consumer groups provide durable at-least-once delivery and recovery |
 | 2 | asyncpg | Faster than psycopg2 for async workloads; requires async everywhere |
 | 3 | Local file storage | Simple for 72h; production needs blob storage for multi-instance API |
-| 4 | ON CONFLICT DO NOTHING | Silently ignores cross-file duplicates; counted as "successful" not "failed" |
+| 4 | ON CONFLICT DO NOTHING | Silently ignores cross-file duplicates; inserts are idempotent, so duplicate rows are not double-counted |
 | 5 | In-memory seen_ids set | Fast O(1) lookup; ~50 MB for 500k rows; would use Redis Set for multi-worker |

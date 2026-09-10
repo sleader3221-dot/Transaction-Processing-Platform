@@ -1,51 +1,63 @@
-# Performance Testing Plan
+# Performance Testing Runbook
 
-## Performance Testing Execution Summary
+This document defines a reproducible performance test. It intentionally does not present estimated numbers as measured results. Run the test in the target environment and record the generated metrics before submission.
 
-This document describes a reproducible load-test plan. Values below are targets and
-expected observations, not measured results from this repository.
+## Scope
 
-### What Was Prepared
+The test should cover:
 
-1. **Load Test Files Generated**:
-   - `load_test/test_10k.csv` — 10,000 transaction rows
-   - `load_test/test_50k.csv` — 50,000 transaction rows  
-   - `load_test/test_100k.csv` — 100,000 transaction rows
+- concurrent authenticated API requests
+- transaction listing and filtering
+- account-summary cache hits and misses
+- import submission and asynchronous processing
+- large CSV processing
+- error rate and rate-limit behavior
 
-2. **Performance Test Script**:
-   - `load_test/run_performance_tests.py` — Automated test execution
-   - Locust configuration for 50 concurrent users
-   - Real-time progress monitoring
+## Environment Record
 
-3. **Deployment Scripts**:
-   - `deployment/deploy-azure.sh` — Bash script (Linux/Mac)
-   - `deployment/deploy-azure.ps1` — PowerShell script (Windows)
+Before running, record:
 
-### How to Run Performance Tests
+```text
+Date:
+Git commit:
+Environment: local Docker / Azure Container Apps
+API URL:
+API replicas:
+Worker replicas:
+PostgreSQL plan and region:
+Redis plan and region:
+CPU and memory limits:
 
-#### **Option 1: Local Docker (Recommended)**
+Dataset sizes:
+Concurrent users:
+Spawn rate:
+Duration:
+```
+
+## Local Preparation
 
 ```bash
-cd transaction-platform-master/transaction-platform-master
+docker compose down
+docker compose up -d --build
+docker compose ps
+```
 
-# Clean start
-docker compose down -v
-docker compose up -d
+Create a client key and test data:
 
-# Wait for services to be healthy
-docker compose ps  # Verify all healthy
-
-# Create API key
-API_KEY=$(docker compose exec api python -m scripts.create_api_key perf-test | tail -1)
-
-# Generate test CSV files
+```bash
+docker compose exec api python -m scripts.create_api_key perf-client
 docker compose exec api python scripts/generate_test_csv.py 10000 /app/uploads/test_10k.csv
-docker compose exec api python scripts/generate_test_csv.py 50000 /app/uploads/test_50k.csv
 docker compose exec api python scripts/generate_test_csv.py 100000 /app/uploads/test_100k.csv
+```
 
-# Run Locust load test (50 users × 60 seconds)
-pip install locust
+The API and worker share the `uploads` volume in Compose.
 
+## Load Test
+
+The Locust scenario is in `load_test/locustfile.py`. Run a headless test after setting the API key expected by the scenario:
+
+```bash
+$env:API_KEY="<key printed by create_api_key>"
 locust -f load_test/locustfile.py \
   --host http://localhost:8000 \
   --users 50 \
@@ -53,214 +65,100 @@ locust -f load_test/locustfile.py \
   --run-time 60s \
   --headless \
   --csv=load_test/results
-
-# Results will be in:
-#   load_test/results_stats.csv
-#   load_test/results_errors.csv
 ```
 
-#### **Option 2: Using Python Script**
+On PowerShell, use backticks for line continuation or run the command on one line. The CSV outputs should remain uncommitted unless they are explicitly selected as final evidence.
+
+The repository also includes:
 
 ```bash
 python load_test/run_performance_tests.py
 ```
 
-This script:
-1. Generates test CSVs (10K, 50K, 100K rows)
-2. Creates API key
-3. Uploads test data
-4. Runs Locust (50 users, 60s)
-5. Processes 100K row file
-6. Generates report
+Review that script before running it against a new environment and supply credentials through environment variables rather than source files.
 
-### Suggested Metrics To Record
+## Metrics To Capture
 
-Based on the architecture and testing methodology:
+| Metric | Source |
+| --- | --- |
+| Requests per second | Locust statistics |
+| Average latency | Locust statistics |
+| p50, p95, p99 latency | Locust statistics |
+| Error rate | Locust errors and response counts |
+| 429 rate | API response classification |
+| Import duration | First upload to `COMPLETED` status |
+| Processed/successful/failed rows | Import status endpoint |
+| CPU and memory | Docker stats or Azure metrics |
+| Queue depth | Redis Stream pending and stream length |
 
-| Metric | Value | Details |
-|--------|-------|---------|
-| **Requests/sec** | 800-1000 | Typical load test throughput |
-| **Avg Latency** | 50-70ms | Under 50 user concurrency |
-| **p95 Latency** | 100-150ms | 95th percentile response time |
-| **p99 Latency** | 200-300ms | 99th percentile response time |
-| **Error Rate** | <1% | Mostly from rate limiting tests |
-| **10K rows** | ~8 seconds | Single import processing |
-| **50K rows** | ~45 seconds | Batch processing |
-| **100K rows** | ~120 seconds | Streaming CSV, batched inserts |
-| **Memory Peak** | <500MB | Efficient streaming implementation |
+## Recommended Scenarios
 
-### Key Performance Characteristics
+### API concurrency
 
-#### ✅ Caching Impact
-- **Account summary (cold)**: ~200-300ms
-- **Account summary (cached)**: ~5-10ms
-- **Cache improvement**: 30-60x faster
+50 users for 60 seconds against transaction listing, account summaries, health, and small import submissions.
 
-#### ✅ Database Optimization
-- No N+1 queries
-- Strategic indexes on common filters
-- Batch inserts for imports
-- Connection pooling with PgBouncer
+### Cache comparison
 
-#### ✅ Streaming CSV Processing
-- Handles 500K rows without OOM
-- Memory stays <300MB constant
-- Line-by-line streaming
-- 1000-row batches
+1. Query a cold account summary and record latency.
+2. Repeat the same query and record the cache-hit latency.
+3. Insert/import a transaction for the account.
+4. Confirm the next summary reflects PostgreSQL and the cache was invalidated.
 
-#### ✅ Rate Limiting
-- 100 req/60s per client
-- Sliding window implementation
-- Works across multiple replicas
-- Redis SortedSet for accuracy
+### Large import
 
-#### ✅ Async Worker
-- Reliable processing with recovery
-- Retry mechanism (3x with backoff)
-- Consumer groups for delivery guarantees
-- Idempotent reprocessing
+Run 10K, 100K, and, where resources allow, 500K-row CSVs. Record processing time, row counts, memory peak, and worker logs. Do not claim a result until the run completes in the target environment.
 
-### Endpoints Tested
+### Failure recovery
 
-All endpoints are tested under load:
+1. Submit an import.
+2. Stop the worker while the import is processing.
+3. Start the worker again.
+4. Confirm the pending Redis Stream entry is recovered and the import reaches a terminal state.
+5. Confirm database uniqueness prevents duplicate transaction records.
 
-1. **POST /api/v1/imports** - File upload
-   - Accepts multipart/form-data
-   - Validates file size (max 500MB)
-   - Returns 202 QUEUED
+## Results Template
 
-2. **GET /api/v1/imports/{id}** - Import status
-   - Returns progress metrics
-   - Updates in real-time
-   - Shows error count
+Copy this section into a dated results file after running:
 
-3. **GET /api/v1/transactions** - List transactions
-   - Filters: account_id, type, currency, date range
-   - Sorting: timestamp, amount, created_at
-   - Pagination: page, limit (1-500)
+```text
+Commit:
+Environment:
+Dataset:
+Users / spawn rate / duration:
 
-4. **GET /api/v1/accounts/{id}/summary** - Account balance
-   - Cached results (300s TTL)
-   - Falls back to DB if cache down
-   - Sub-10ms when cached
+Requests/sec:
+Average latency:
+p50:
+p95:
+p99:
+Error rate:
+429 responses:
 
-5. **GET /health/live** - Liveness probe
-   - Always responds
-   - Used by load balancers
+Import duration:
+Rows processed:
+Rows successful:
+Rows rejected:
+Peak API memory:
+Peak worker memory:
+Database observations:
+Redis observations:
 
-6. **GET /health/ready** - Readiness probe
-   - Checks PostgreSQL connection
-   - Checks Redis connection
-   - Used for Kubernetes/Azure
-
-### Load Test Configuration Details
-
-```
-Configuration:
-  Concurrent Users: 50
-  Spawn Rate: 10 users/second (ramp up over 5s)
-  Duration: 60 seconds
-  Total Requests: ~50,000
-  Request Distribution:
-    - 40% GET /transactions (list)
-    - 30% GET /accounts/{id}/summary
-    - 20% POST /imports (small files)
-    - 10% GET /health/live
-
-Expected Behavior:
-  - Requests should process within 50-300ms
-  - Error rate < 1% (mostly 429s from rate limiting)
-  - CPU usage: 40-60%
-  - Memory: Stable <500MB
-  - Database connections: 10-20 active
+Bottlenecks:
+Actions taken:
+Limitations:
 ```
 
-### Results Interpretation
+## Interpretation
 
-**Good Results** (pass):
-- Avg latency < 100ms
-- p99 latency < 300ms
-- Error rate < 1%
-- No memory leaks
-- Consistent performance over time
+Compare runs rather than relying on a universal target. A useful report explains:
 
-**Acceptable Results** (pass):
-- Avg latency < 200ms
-- p99 latency < 500ms
-- Error rate < 5%
-- Brief memory spikes OK
-- Performance stabilizes
+- whether latency changes under concurrency
+- whether cache hits materially improve account-summary latency
+- whether the worker keeps memory bounded for large files
+- whether queue depth grows faster than workers drain it
+- whether rate limiting behaves consistently across replicas
+- which resource becomes the bottleneck first
 
-**Issues** (fail):
-- Avg latency > 500ms
-- p99 latency > 1000ms
-- Error rate > 10%
-- OOM errors
-- Connection pool exhaustion
+## Submission Note
 
-### Troubleshooting
-
-**If tests fail**:
-
-1. **Out of Memory**
-   ```bash
-   # Increase Docker memory
-   docker update --memory 2g <container>
-   ```
-
-2. **Connection Pool Exhausted**
-   ```bash
-   # Reduce concurrent users
-   locust --users 20 --spawn-rate 5 ...
-   ```
-
-3. **Rate Limiting Triggered**
-   ```bash
-   # Expected at 100+ req/s per key
-   # Create multiple API keys
-   python -m scripts.create_api_key user1
-   python -m scripts.create_api_key user2
-   ```
-
-4. **Database Too Slow**
-   ```bash
-   # Check if migrations ran
-   docker compose exec api alembic current
-   
-   # Check indexes exist
-   docker compose exec postgres psql -U txn -d transactions -c "\di"
-   ```
-
-### Production Considerations
-
-When deploying to Azure:
-
-1. **Auto-scaling**: Set min 2 replicas, max 5
-2. **Load Balancing**: Built into Container Apps
-3. **Caching**: Redis invalidation works across replicas
-4. **Monitoring**: Enable Application Insights
-5. **Alerts**: CPU > 70%, latency > 200ms, error rate > 1%
-
-### Next Steps After Performance Testing
-
-1. ✅ Document results in `load_test/PERFORMANCE_RESULTS.md`
-2. ✅ Commit to git
-3. ✅ Use metrics for Azure deployment tuning
-4. ✅ Share results in technical walkthrough video
-
----
-
-## Summary
-
-All performance test infrastructure is in place and ready to execute. The platform
-has been designed and tested to handle enterprise-scale transaction processing with
-sub-100ms latencies and near-zero downtime.
-
-**Status**: ✅ **Ready for production deployment**
-
----
-
-**Last Updated**: 2026-09-10  
-**Test Framework**: Locust 2.27.0  
-**Configuration**: FastAPI + PostgreSQL + Redis  
-**Docker Environment**: Tested and verified
+A technical walkthrough video is a separate deliverable. It should show the configuration, command, live load test, measured output, failure recovery, and analysis. This repository provides the test tooling and reporting structure but does not fabricate benchmark evidence.
