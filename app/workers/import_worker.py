@@ -3,6 +3,7 @@ import csv
 import os
 import signal
 import socket
+import tempfile
 from datetime import datetime, timezone
 
 import structlog
@@ -11,6 +12,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from app.config import get_settings
 from app.core.validation import validate_transaction_row
+from app.core import blob_storage
 from app.db.database import get_db_session
 from app.models.import_error import ImportRow
 from app.models.import_model import Import, ImportStatus
@@ -156,10 +158,22 @@ async def _process_import(import_id: str, recovery: bool = False):
         await db.commit()
         file_path = row.file_path
 
-    if not file_path or not os.path.exists(file_path):
-        raise FileNotFoundError(f"Upload file missing: {file_path}")
-
-    await _stream_csv(import_id, file_path)
+    if file_path and file_path.startswith("blob://"):
+        temporary_file = tempfile.NamedTemporaryFile(
+            prefix=f"{import_id}-", suffix=".csv", delete=False
+        )
+        temporary_path = temporary_file.name
+        temporary_file.close()
+        try:
+            await asyncio.to_thread(blob_storage.download_file, file_path, temporary_path)
+            await _stream_csv(import_id, temporary_path)
+        finally:
+            if os.path.exists(temporary_path):
+                os.remove(temporary_path)
+    else:
+        if not file_path or not os.path.exists(file_path):
+            raise FileNotFoundError(f"Upload file missing: {file_path}")
+        await _stream_csv(import_id, file_path)
 
 
 async def _stream_csv(import_id: str, file_path: str):

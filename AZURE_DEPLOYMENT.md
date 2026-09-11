@@ -5,13 +5,14 @@ This repository deploys two separate Azure Container Apps workloads:
 - `txn-api`: public FastAPI service with external HTTP ingress on port 8000.
 - `txn-worker`: private background consumer with no HTTP ingress.
 
-Both workloads use images from Azure Container Registry and connect to external Neon PostgreSQL and Upstash Redis services.
+Both workloads use images from Azure Container Registry, shared Azure Blob upload storage, and external Neon PostgreSQL and Upstash Redis services.
 
 ## Verified Deployment
 
 - Region: `koreacentral` because it is allowed by the active Azure for Students policy.
 - Resource group: `txn-platform-rg`
 - Container Registry: `txnapiregistry`
+- Blob Storage account: `txnplatformstorage01`
 - Container Apps environment: `txn-platform-env`
 - API URL: `https://txn-api.blackocean-56128bc6.koreacentral.azurecontainerapps.io`
 - Swagger: `https://txn-api.blackocean-56128bc6.koreacentral.azurecontainerapps.io/docs`
@@ -29,8 +30,9 @@ Azure Container Apps: txn-api  -- external :8000
   |                          \ Redis Streams/cache/rate limits
   v                           \
 Neon PostgreSQL                 Azure Container Apps: txn-worker -- no ingress
-                                  |
+                                  |\
                                   +-- consumes imports:queue
+                                  +-- downloads shared Blob uploads
 ```
 
 ## Prerequisites

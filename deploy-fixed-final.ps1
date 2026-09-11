@@ -10,6 +10,8 @@ Write-Host ""
 $ResourceGroup = "txn-platform-rg"
 $Location = "koreacentral"
 $AcrName = "txnapiregistry"
+$StorageAccountName = "txnplatformstorage01"
+$StorageContainerName = "uploads"
 $ContainerAppsEnv = "txn-platform-env"
 $ApiContainerName = "txn-api"
 $WorkerContainerName = "txn-worker"
@@ -100,6 +102,37 @@ if ($LASTEXITCODE -ne 0 -or -not $AcrUrl -or -not $AcrUser -or -not $AcrPass -or
 Write-Host "Registry: $AcrUrl" -ForegroundColor Green
 Write-Host ""
 
+Write-Host "[Step 4b] Creating shared upload storage..." -ForegroundColor Yellow
+$ExistingStorage = az storage account show --name $StorageAccountName --resource-group $ResourceGroup --query name -o tsv 2>$null
+if ($LASTEXITCODE -ne 0 -or -not $ExistingStorage) {
+  az storage account create --name $StorageAccountName --resource-group $ResourceGroup --location $Location --sku Standard_LRS --kind StorageV2 --https-only true -o none
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "ERROR: Could not create Blob Storage account." -ForegroundColor Red
+    exit 1
+  }
+}
+$StorageKey = az storage account keys list --account-name $StorageAccountName --resource-group $ResourceGroup --query '[0].value' -o tsv
+$StorageKey = $StorageKey.Trim()
+if (-not $StorageKey) {
+  Write-Host "ERROR: Could not retrieve Blob Storage account key." -ForegroundColor Red
+  exit 1
+}
+$BlobConnectionString = az storage account show-connection-string --name $StorageAccountName --resource-group $ResourceGroup --query connectionString -o tsv
+az storage container create --name $StorageContainerName --account-name $StorageAccountName --account-key $StorageKey -o none 2>$null
+
+Write-Host "[Step 4c] Applying database migrations..." -ForegroundColor Yellow
+$env:DATABASE_URL = $DatabaseUrl
+python -m alembic -c migrations/alembic.ini upgrade head
+if ($LASTEXITCODE -ne 0) {
+  Write-Host "ERROR: Database migrations failed." -ForegroundColor Red
+  exit 1
+}
+$MigrationVersion = python -m alembic -c migrations/alembic.ini current 2>$null
+if ($LASTEXITCODE -ne 0 -or $MigrationVersion -notmatch "001") {
+  Write-Host "ERROR: Database migration version 001 was not applied." -ForegroundColor Red
+  exit 1
+}
+
 Write-Host "[Step 5] Building Docker image..." -ForegroundColor Yellow
 cd "C:\Users\Tanvi Technology\Downloads\transaction-platform-master\transaction-platform-master"
 docker build -t txn-api:latest . 2>&1 | Select-Object -Last 5
@@ -164,10 +197,13 @@ az containerapp create `
   --secrets `
     db-url="$DatabaseUrl" `
     redis-url="$RedisUrl" `
+    blob-connection="$BlobConnectionString" `
     secret-key="$SecretKey" `
   --env-vars `
     DATABASE_URL=secretref:db-url `
     REDIS_URL=secretref:redis-url `
+    BLOB_CONNECTION_STRING=secretref:blob-connection `
+    BLOB_CONTAINER=$StorageContainerName `
     SECRET_KEY=secretref:secret-key `
     APP_ENV=production `
     LOG_LEVEL=INFO `
@@ -198,10 +234,13 @@ az containerapp create `
   --secrets `
     db-url="$DatabaseUrl" `
     redis-url="$RedisUrl" `
+    blob-connection="$BlobConnectionString" `
     secret-key="$SecretKey" `
   --env-vars `
     DATABASE_URL=secretref:db-url `
     REDIS_URL=secretref:redis-url `
+    BLOB_CONNECTION_STRING=secretref:blob-connection `
+    BLOB_CONTAINER=$StorageContainerName `
     SECRET_KEY=secretref:secret-key `
     APP_ENV=production `
     LOG_LEVEL=INFO `

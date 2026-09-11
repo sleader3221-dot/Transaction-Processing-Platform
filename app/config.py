@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     TESTING: bool = False
     LOG_LEVEL: str = "INFO"
     SECRET_KEY: str = "change-me"
+    BLOB_CONNECTION_STRING: str = ""
+    BLOB_CONTAINER: str = "uploads"
     UPLOAD_DIR: str = "/app/uploads"
     MAX_FILE_SIZE_MB: int = 500
     RATE_LIMIT_REQUESTS: int = 100

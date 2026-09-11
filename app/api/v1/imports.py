@@ -1,5 +1,6 @@
 import csv
 import os
+import asyncio
 import aiofiles
 from datetime import datetime, timezone
 
@@ -12,6 +13,7 @@ from app.config import get_settings
 from app.core.auth import verify_api_key
 from app.core.id_gen import generate_id
 from app.core.validation import validate_csv_header
+from app.core import blob_storage
 from app.db.database import get_db
 from app.models.import_error import ImportRow
 from app.models.import_model import Import, ImportStatus
@@ -72,10 +74,22 @@ async def create_import(
         os.remove(file_path)
         raise HTTPException(status_code=400, detail=str(exc))
 
+    stored_path = file_path
+    if blob_storage.is_enabled():
+        try:
+            stored_path = await asyncio.to_thread(
+                blob_storage.upload_file, file_path, f"{import_id}.csv"
+            )
+            os.remove(file_path)
+        except Exception as exc:
+            os.remove(file_path)
+            logger.error("upload_blob_failed", import_id=import_id, error=str(exc))
+            raise HTTPException(status_code=503, detail="Upload storage unavailable")
+
     imp = Import(
         id=import_id,
         filename=file.filename,
-        file_path=file_path,
+        file_path=stored_path,
         status=ImportStatus.QUEUED,
         client_id=client_id,
     )

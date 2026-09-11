@@ -100,6 +100,8 @@ Copy `.env.example` to `.env`. Never commit `.env` or real credentials.
 | --- | --- | --- |
 | `DATABASE_URL` | PostgreSQL connection URL | `postgresql://txn:txn_secret@postgres:5432/transactions` |
 | `REDIS_URL` | Redis connection URL | `redis://redis:6379/0` |
+| `BLOB_CONNECTION_STRING` | Optional shared upload storage URL | Empty locally; Azure Blob in cloud |
+| `BLOB_CONTAINER` | Blob container for uploads | `uploads` |
 | `APP_ENV` | Runtime environment | `development` or `production` |
 | `LOG_LEVEL` | Structured log level | `INFO` |
 | `SECRET_KEY` | Application secret | A generated random value |
@@ -116,7 +118,7 @@ For Neon, use its pooled PostgreSQL URL with `sslmode=require`. The application 
 ## End-To-End Import Flow
 
 1. An authenticated client uploads a CSV to `POST /api/v1/imports`.
-2. The API streams the upload to shared storage, validates the header, and creates an `imports` row.
+2. The API streams the upload to local storage or Azure Blob Storage, validates the header, and creates an `imports` row.
 3. The API adds the import ID to the Redis Stream and returns `202 Accepted` immediately.
 4. The worker consumes the message through the `workers` consumer group.
 5. The worker reads the CSV incrementally, validates each row, and inserts batches into PostgreSQL.
