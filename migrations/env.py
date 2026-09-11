@@ -2,6 +2,7 @@ import os
 import asyncio
 from logging.config import fileConfig
 from sqlalchemy import pool
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 
@@ -10,8 +11,17 @@ from app.models import api_key, import_model, import_error, transaction  # noqa
 
 config = context.config
 
-config.set_main_option("sqlalchemy.url",
-    os.environ["DATABASE_URL"].replace("postgresql://", "postgresql+asyncpg://"))
+database_url = make_url(os.environ["DATABASE_URL"])
+query = dict(database_url.query)
+ssl_required = query.pop("sslmode", None) == "require"
+query.pop("channel_binding", None)
+config.set_main_option(
+    "sqlalchemy.url",
+    database_url.set(
+        drivername="postgresql+asyncpg",
+        query=query,
+    ).render_as_string(hide_password=False),
+)
 
 if config.config_file_name:
     fileConfig(config.config_file_name)
@@ -38,6 +48,7 @@ async def run_async_migrations():
         config.get_section(config.config_ini_section),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args={"ssl": True} if ssl_required else {},
     )
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)
