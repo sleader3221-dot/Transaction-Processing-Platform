@@ -1,4 +1,5 @@
 import asyncio
+import argparse
 import hashlib
 import secrets
 import sys
@@ -23,5 +24,9 @@ async def create(client_id: str) -> None:
 
 
 if __name__ == "__main__":
-    client = sys.argv[1] if len(sys.argv) > 1 else "default"
+    parser = argparse.ArgumentParser(description="Create an API key")
+    parser.add_argument("client_id", nargs="?", help="Client identifier")
+    parser.add_argument("--name", dest="name", help="Client identifier")
+    args = parser.parse_args()
+    client = args.name or args.client_id or "default"
     asyncio.run(create(client))
