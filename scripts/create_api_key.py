@@ -4,6 +4,8 @@ import hashlib
 import secrets
 import sys
 
+from sqlalchemy import select
+
 from app.db.database import AsyncSessionLocal
 from app.models.api_key import ApiKey
 from app.core.id_gen import generate_id
@@ -14,8 +16,15 @@ async def create(client_id: str) -> None:
     key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
 
     async with AsyncSessionLocal() as db:
-        db.add(ApiKey(id=generate_id(), client_id=client_id,
-                      key_hash=key_hash, is_active=True))
+        existing = (await db.execute(
+            select(ApiKey).where(ApiKey.client_id == client_id)
+        )).scalar_one_or_none()
+        if existing:
+            existing.key_hash = key_hash
+            existing.is_active = True
+        else:
+            db.add(ApiKey(id=generate_id(), client_id=client_id,
+                          key_hash=key_hash, is_active=True))
         await db.commit()
 
     print(f"\nClient ID : {client_id}")
